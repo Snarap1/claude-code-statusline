@@ -106,6 +106,21 @@ check('context bar width and glyphs', () => {
   assert(over.includes('100%'), over);
 });
 
+check('context bar null/empty/zero handling', () => {
+  const dir = makeTempDir();
+  for (const remaining_percentage of [null, '', 'abc']) {
+    const { text } = runStatusline(inputFor(dir, {
+      context_window: { remaining_percentage }
+    }));
+    assert(!text.includes('%'), `context bar should be hidden for ${String(remaining_percentage)}: ${text}`);
+  }
+
+  const full = runStatusline(inputFor(dir, {
+    context_window: { remaining_percentage: 0 }
+  })).text;
+  assert(full.includes('100%'), full);
+});
+
 check('dirname middle ellipsis triggers only when line >100 cols', () => {
   const parent = makeTempDir();
   const exact15 = path.join(parent, '123456789012345');

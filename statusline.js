@@ -31,7 +31,8 @@ process.stdin.on('end', () => {
     const model = shortModel(data.model?.display_name || 'Claude');
     const dir = data.workspace?.current_dir || process.cwd();
     const session = data.session_id || '';
-    const remaining = Number(data.context_window?.remaining_percentage);
+    const rawRemaining = data.context_window?.remaining_percentage;
+    const remaining = (rawRemaining == null || rawRemaining === '') ? NaN : Number(rawRemaining);
     const homeDir = os.homedir();
     const claudeDir = process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
 
@@ -269,7 +270,8 @@ process.stdin.on('end', () => {
         return `${resetMin}m`;
       };
       const withReset = (label, bucket, opts) => {
-        const usedPct = Number(bucket.used_percentage);
+        const rawUsedPct = bucket.used_percentage;
+        const usedPct = (rawUsedPct == null || rawUsedPct === '') ? NaN : Number(rawUsedPct);
         if (!Number.isFinite(usedPct)) return null;
         const pct = Math.round(usedPct);
         const reset = formatReset(bucket.resets_at, opts);
