@@ -13,7 +13,7 @@ No dependencies. No build step. Works on macOS, Linux, and Windows.
 ## Preview
 
 ```
-Op 4.7 (1m) │ Writing README │ claude-…tusline (main) │ 3 dirty ↑2 push ⚠ md drift │ ██░░░ 40% │ cache ↓75k +360 1h:42m │ 5h:35%(2h15m) │ 7d:42%(4d)
+Op 4.7 (1m) │ Writing README │ claude-…tusline (main) │ 3M 1? ↑2 push ⚠ md drift │ ██░░░ 40% │ cache ↓75k +360 1h:42m │ 5h:35%(2h15m) │ 7d:42%(4d)
 ```
 
 Each segment is color-coded (dim, bright, cyan, pink, yellow, orange, red) so the
@@ -30,7 +30,7 @@ shortened so the line fits in a 100-column terminal.
 | `Op 4.7 (1m)` | Current model, abbreviated: family (`Op`/`So`/`Ha`/`My`) + space + version + context size (dim). `Opus 4.7 (1M context)` becomes `Op 4.7 (1m)`. Unrecognised model names are shown as-is. |
 | `Writing README` | Active task — pulled from your in-progress TODO (bold) |
 | `claude-…tusline (main)` | Working directory basename (dim) + current branch in cyan; shows `(HEAD@<sha>)` in red for detached HEAD. The basename is trimmed to a 15-char `head…tail` middle ellipsis (7 chars each side) **only when the full status line would otherwise exceed 100 visible columns** — short lines keep the full name |
-| `3 dirty` | Untracked + modified files in the repo (dim). "Dirty" matches git's own term — `git describe --dirty`, `GIT_PS1_SHOWDIRTYSTATE` |
+| `3M 1A 1D 1R 2? 1!` | Working tree status, bucketed by VS Code-style codes: `M` = modified, `A` = added/staged, `D` = deleted, `R` = renamed, `?` = untracked. All shown dim. `!` = unmerged conflict, rendered separately in **red** because it's the only one that blocks a commit. Empty buckets are hidden — clean repo shows nothing |
 | `↑2 push` / `↓1 pull` | Local branch is ahead/behind `origin/<branch>` |
 | `⚠ md drift` | `CLAUDE.md` ↔ `AGENTS.md` ↔ `GEMINI.md` are out of sync |
 | `██░░░ 40%` | Context window usage — 5-cell bar with half-block precision (`█▌░`, ~10% per step in 5 cells), adjusted for the auto-compact buffer |

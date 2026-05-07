@@ -148,7 +148,7 @@ check('dirname middle ellipsis triggers only when line >100 cols', () => {
   assert(!big.includes('0123456789012345'), `huge dirname: full must NOT appear, got ${big}`);
 });
 
-check('git segment shows dirty count, branch, and ahead push', () => {
+check('git segment buckets porcelain codes, branch, and ahead push', () => {
   const dir = makeTempDir();
   const git = (file, args) => {
     assert.strictEqual(file, 'git');
@@ -164,9 +164,54 @@ check('git segment shows dirty count, branch, and ahead push', () => {
 
   const { text } = runStatusline(inputFor(dir), {}, git);
   assert(text.includes(`${path.basename(dir)} (main)`), text);
-  assert(text.includes('2 dirty'), text);
+  assert(text.includes('1M 1?'), text);
   assert(text.includes('↑2 push'), text);
   assert(!text.includes('pull'), text);
+  assert(!text.includes('dirty'), text);
+});
+
+check('git segment buckets all VS Code-style status codes', () => {
+  const dir = makeTempDir();
+  const cases = [
+    // [porcelain, expected substring, description]
+    [' M a.js',                    '1M',          'modified in WT'],
+    ['M  a.js',                    '1M',          'modified staged'],
+    ['MM a.js',                    '1M',          'modified twice'],
+    ['A  a.js',                    '1A',          'added staged'],
+    ['AM a.js',                    '1A',          'added then modified'],
+    [' D a.js',                    '1D',          'deleted in WT'],
+    ['D  a.js',                    '1D',          'deleted staged'],
+    ['MD a.js',                    '1D',          'staged then deleted'],
+    ['R  a.js -> b.js',            '1R',          'renamed'],
+    ['?? note.txt',                '1?',          'untracked'],
+    ['UU conflict.js',             '1!',          'merge conflict'],
+    ['DD a.js',                    '1!',          'both deleted (unmerged)'],
+    ['AA a.js',                    '1!',          'both added (unmerged)'],
+    [' M a.js\n M b.js\n?? c.txt', '2M 1?',       'mixed'],
+    [' M a.js\n D b.js\n?? c.txt', '1M 1D 1?',    'M+D+?'],
+    [' M a.js\nUU b.js',           '1M',          'M present in dim'],
+  ];
+
+  for (const [porcelain, expected, desc] of cases) {
+    const git = (file, args) => {
+      const key = args.join(' ');
+      if (key === 'status --porcelain') return porcelain;
+      if (key === 'branch --show-current') return 'main';
+      return '';
+    };
+    const { text } = runStatusline(inputFor(dir), {}, git);
+    assert(text.includes(expected), `${desc}: expected "${expected}" in: ${text}`);
+  }
+
+  // Conflict marker is rendered separately and stays visible
+  const conflictGit = (file, args) => {
+    const key = args.join(' ');
+    if (key === 'status --porcelain') return ' M a.js\nUU b.js';
+    if (key === 'branch --show-current') return 'main';
+    return '';
+  };
+  const { text } = runStatusline(inputFor(dir), {}, conflictGit);
+  assert(text.includes('1!'), `conflict marker missing: ${text}`);
 });
 
 check('git segment shows detached HEAD short sha', () => {

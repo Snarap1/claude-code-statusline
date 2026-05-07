@@ -104,11 +104,27 @@ process.stdin.on('end', () => {
       };
       const parts = [];
 
-      // Uncommitted changes
+      // Uncommitted changes — bucketed by VS Code-style status codes
       const status = gitExec(['status', '--porcelain']);
       if (status) {
-        const count = status.split('\n').filter(Boolean).length;
-        parts.push(`\x1b[2m${count} dirty\x1b[0m`);
+        const buckets = { M: 0, A: 0, D: 0, R: 0, '?': 0, '!': 0 };
+        for (const line of status.split('\n')) {
+          if (!line) continue;
+          const X = line.charAt(0);
+          const Y = line.charAt(1);
+          if (X === '?' && Y === '?') buckets['?']++;
+          else if (X === 'U' || Y === 'U' || (X === 'D' && Y === 'D') || (X === 'A' && Y === 'A')) buckets['!']++;
+          else if (Y === 'D' || X === 'D') buckets.D++;
+          else if (X === 'R') buckets.R++;
+          else if (X === 'A' || X === 'C') buckets.A++;
+          else buckets.M++;
+        }
+        const dimBuckets = [];
+        for (const k of ['M', 'A', 'D', 'R', '?']) {
+          if (buckets[k] > 0) dimBuckets.push(`${buckets[k]}${k}`);
+        }
+        if (dimBuckets.length > 0) parts.push(`\x1b[2m${dimBuckets.join(' ')}\x1b[0m`);
+        if (buckets['!'] > 0) parts.push(`\x1b[31m${buckets['!']}!\x1b[0m`);
       }
 
       // Behind/ahead origin
