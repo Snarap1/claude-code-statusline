@@ -251,11 +251,14 @@ process.stdin.on('end', () => {
 
         // Hit ratio: read / (input + cache_creation + cache_read).
         // Matches the input-only formula used for used_percentage.
+        // ratio === 0 means a full cache miss / invalidation — surface it loudly
+        // instead of hiding the segment, since it's a costly event worth noticing.
         const denom = read + write + freshInput;
-        if (read > 0 && denom > 0) {
-          const ratio = Math.round(read / denom * 100);
+        if (denom > 0) {
+          const ratio = read > 0 ? Math.round(read / denom * 100) : 0;
           let ratioColor;
-          if (ratio >= 90) ratioColor = '\x1b[1;32m';
+          if (ratio === 0) ratioColor = '\x1b[1;31m';
+          else if (ratio >= 90) ratioColor = '\x1b[1;32m';
           else if (ratio >= 75) ratioColor = '\x1b[32m';
           else if (ratio >= 50) ratioColor = '\x1b[33m';
           else ratioColor = '\x1b[38;2;255;140;0m';
