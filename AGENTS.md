@@ -35,7 +35,7 @@ Manual. Pipe a sample statusline JSON into the script:
 echo '{"model":{"display_name":"claude-opus-4-7"},"workspace":{"current_dir":"."},"session_id":"test","context_window":{"remaining_percentage":60}}' | node statusline.js
 ```
 
-Visual inspection is the test suite. There is no CI yet.
+There is a smoke test suite at `tests/statusline-smoke.test.js`; run it with `node tests/statusline-smoke.test.js`. There is no CI yet.
 
 ## License
 

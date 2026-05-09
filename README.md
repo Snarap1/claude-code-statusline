@@ -14,10 +14,10 @@ No dependencies. No build step. Works on macOS, Linux, and Windows.
 ## Preview
 
 ```
-Op 4.7 (1m) │ Writing README │ claude-…tusline (main) │ 3M 1? ↑2 push ⚠ md drift │ ██░░░ 40% │ cache ↓75k +360 1h:42m │ 5h:35%(2h15m) │ 7d:42%(4d)
+Op 4.7 (1m) │ Writing README │ claude-…tusline (main) │ 3M 1? ↑2 push ⚠ md drift │ ██░░░ 480k/1M │ cache 87% ↓75k +360 1h:42m │ 5h:35%(2h15m) │ 7d:42%(4d)
 ```
 
-Each segment is color-coded (dim, bright, cyan, pink, yellow, orange, red) so the
+Each segment is color-coded (dim, bright, cyan, pink, green, yellow, orange, red) so the
 shape of the line itself communicates urgency at a glance. Labels are aggressively
 shortened so the line fits in a 100-column terminal.
 
@@ -34,8 +34,8 @@ shortened so the line fits in a 100-column terminal.
 | `3M 1A 1D 1R 2? 1!` | Working tree status, bucketed by VS Code-style codes: `M` = modified, `A` = added/staged, `D` = deleted, `R` = renamed, `?` = untracked. All shown dim. `!` = unmerged conflict, rendered separately in **red** because it's the only one that blocks a commit. Empty buckets are hidden — clean repo shows nothing |
 | `↑2 push` / `↓1 pull` | Local branch is ahead/behind `origin/<branch>` |
 | `⚠ md drift` | `CLAUDE.md` ↔ `AGENTS.md` ↔ `GEMINI.md` are out of sync |
-| `██░░░ 40%` | Context window usage — 5-cell bar with half-block precision (`█▌░`, ~10% per step in 5 cells), adjusted for the auto-compact buffer |
-| `cache ↓75k +360 1h:42m` | Prompt cache state from the session transcript: `↓` tokens read from cache (90% discount), `+` or `↑` tokens written, optional `1h`/`5m` TTL bucket, optional `:Xm` countdown to expiry (live with `refreshInterval`) |
+| `██░░░ 480k/1M` | Context window usage — 5-cell bar with half-block precision (`█▌░`, ~10% per step in 5 cells), adjusted for the auto-compact buffer. When Claude Code provides absolute context counters, the segment appends `total_input_tokens/context_window_size` (for example `480k/1M`). On 1M-context sessions, the bar turns yellow once total input crosses 250k tokens even if the buffer-adjusted bar is still below the normal yellow threshold |
+| `cache 87% ↓75k +360 1h:42m` | Prompt cache state. Read/write/input counters come from stdin `context_window.current_usage`; the session transcript only supplies the TTL bucket (`1h`/`5m`) and last-touch timestamp for the countdown. Hit ratio is `read / (input + write + read)`: `≥90%` bold green, `≥75%` green, `≥50%` yellow, below that orange, and `0%` bold red for a full miss/invalidation. `↓` means tokens read from cache, `+` or `↑` means tokens written. After `/compact`, `cache:reset` appears while stdin `current_usage` is null but the transcript shows earlier cache activity |
 | `5h:35%(2h15m)` | 5-hour rate limit usage + reset countdown (`Xh Ym` / `Mm`) |
 | `7d:42%(4d)` | 7-day rate limit usage + reset countdown. Coarse format: `Nd` while ≥ 2 days remain; `1dXh` for the final day (renders as `24h` at exactly 1 day so the unit doesn't lie); `Xh Ym` / `Mm` below 1 day |
 
@@ -47,6 +47,10 @@ The context bar and rate-limit percentages share the same color scale:
 | 50-65% | yellow |
 | 65-80% | orange |
 | ≥ 80% | red with a 💀 prefix on the context bar |
+
+For 1M-context sessions, the context bar has one extra early-warning rule: once
+`total_input_tokens` exceeds 250k, pink is promoted to yellow even if the
+buffer-adjusted usage percentage is still below 50%.
 
 ## Installation
 
@@ -114,7 +118,7 @@ None of them are required for the statusline itself to work.
 
 - **All git checks are local.** No `git fetch`, no network, hard 1s timeout per command.
 - **Bridge file in `os.tmpdir()`.** The context-usage value is written to `claude-ctx-{session_id}.json` so other hooks (e.g. a `PostToolUse` context monitor) can read the same number without re-parsing stdin.
-- **Auto-compact buffer correction.** Claude Code reserves ~16.5% of the window for auto-compaction. The displayed percentage is *usable* context spent, not raw — so 100% means you're actually about to hit the wall, not 16.5% before it.
+- **Auto-compact buffer correction.** Claude Code reserves ~16.5% of the window for auto-compaction. The context bar is based on usable context spent, not raw remaining percentage — so a full bar means you're actually about to hit the wall, not 16.5% before it.
 - **Stdin timeout (3s)** — if Claude Code never sends data, the script exits cleanly instead of hanging.
 
 ## Cross-platform notes
@@ -123,11 +127,11 @@ None of them are required for the statusline itself to work.
   console flashes appear during git polling.
 - **Path separators:** filesystem paths use `path.join` and `os.homedir()`;
   Claude transcript lookup intentionally mirrors Claude Code's project-slug
-  convention by replacing path separators with `-`.
+  convention by replacing drive colons, path separators, and dots with `-`.
 
 ## Customization
 
-The script is ~300 lines of dependency-free Node.js. Open it and tweak.
+The script is 389 lines of dependency-free Node.js. Open it and tweak.
 The most common customizations:
 
 - **Hide the cache segment** — delete the `Prompt cache state` block. Useful if you don't run Claude Code in this terminal or don't want token counts visible.
