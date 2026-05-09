@@ -201,7 +201,11 @@ process.stdin.on('end', () => {
       // reset (current_usage is null but earlier messages had cache activity).
       if (session && (read > 0 || write > 0 || usageNull)) {
         try {
-          const slug = dir.replace(/[:\\\/]/g, '-');
+          // Claude Code slug encoding: drive colon, separators, AND dots → '-'
+          // (e.g. C:\Users\ilyap\.openclaw → C--Users-ilyap--openclaw).
+          // Without the dot replacement, transcripts inside hidden dirs aren't
+          // found and the cache TTL/timestamp segment silently drops.
+          const slug = dir.replace(/[:\\\/.]/g, '-');
           const transcriptPath = path.join(claudeDir, 'projects', slug, `${session}.jsonl`);
           if (fs.existsSync(transcriptPath)) {
             const stat = fs.statSync(transcriptPath);
