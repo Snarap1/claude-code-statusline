@@ -59,6 +59,24 @@ function remainingForDisplayedUsed(used) {
   return buffer + ((100 - used) * (100 - buffer)) / 100;
 }
 
+function contextSegment(text) {
+  return text.split(' │ ').find(p => /^(?:💀 )?[█▌░]{5}(?: |$)/.test(p));
+}
+
+function contextBar(segment) {
+  return segment.startsWith('💀 ') ? segment.split(' ')[1] : segment.split(' ')[0];
+}
+
+function slugFor(dir) {
+  return dir.replace(/[:\\\/.]/g, '-');
+}
+
+function writeTranscript(claudeDir, dir, session, records) {
+  const projectDir = path.join(claudeDir, 'projects', slugFor(dir));
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, `${session}.jsonl`), records.join('\n') + '\n');
+}
+
 const failures = [];
 function check(name, fn) {
   try {
@@ -93,17 +111,18 @@ check('context bar width and glyphs', () => {
     const { text } = runStatusline(inputFor(dir, {
       context_window: { remaining_percentage: remainingForDisplayedUsed(used) }
     }));
-    const segment = text.split(' │ ').find(p => p.endsWith(`${used}%`));
+    const segment = contextSegment(text);
     assert(segment, `missing context segment for ${used}%: ${text}`);
-    const bar = segment.includes('💀') ? segment.split(' ')[1] : segment.split(' ')[0];
+    const bar = contextBar(segment);
     assert.strictEqual([...bar].length, 5, `bad width for ${used}%: ${bar}`);
     assert(/^[█▌░]{5}$/.test(bar), `bad glyphs for ${used}%: ${bar}`);
+    assert.strictEqual(segment.startsWith('💀 '), used >= 80, `bad skull state for ${used}%: ${text}`);
   }
 
   const over = runStatusline(inputFor(dir, {
     context_window: { remaining_percentage: 0 }
   })).text;
-  assert(over.includes('100%'), over);
+  assert(contextSegment(over).startsWith('💀 █████'), over);
 });
 
 check('context bar null/empty/zero handling', () => {
@@ -112,13 +131,27 @@ check('context bar null/empty/zero handling', () => {
     const { text } = runStatusline(inputFor(dir, {
       context_window: { remaining_percentage }
     }));
-    assert(!text.includes('%'), `context bar should be hidden for ${String(remaining_percentage)}: ${text}`);
+    assert(!contextSegment(text), `context bar should be hidden for ${String(remaining_percentage)}: ${text}`);
   }
 
   const full = runStatusline(inputFor(dir, {
     context_window: { remaining_percentage: 0 }
   })).text;
-  assert(full.includes('100%'), full);
+  assert(contextSegment(full).startsWith('💀 █████'), full);
+});
+
+check('context bar shows absolute token counts when available', () => {
+  const dir = makeTempDir();
+  const { text } = runStatusline(inputFor(dir, {
+    context_window: {
+      remaining_percentage: remainingForDisplayedUsed(40),
+      total_input_tokens: 480000,
+      context_window_size: 1000000
+    }
+  }));
+  const segment = contextSegment(text);
+  assert(segment, text);
+  assert(segment.includes('480k/1M'), segment);
 });
 
 check('dirname middle ellipsis triggers only when line >100 cols', () => {
@@ -282,28 +315,93 @@ check('cache TTL and JSONL parsing', () => {
   const dir = makeTempDir();
   const claude = makeTempDir();
   const session = 'cache-session';
-  const slug = dir.replace(/[:\\\/]/g, '-');
-  const projectDir = path.join(claude, 'projects', slug);
-  fs.mkdirSync(projectDir, { recursive: true });
-  const transcript = path.join(projectDir, `${session}.jsonl`);
   const now = Date.now();
 
-  fs.writeFileSync(transcript, [
+  writeTranscript(claude, dir, session, [
     '{bad json',
-    JSON.stringify({ type: 'assistant', timestamp: new Date(now - 6 * 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 10, cache_creation: { ephemeral_5m_input_tokens: 10 } } } }),
-    ''
-  ].join('\n'));
+    JSON.stringify({ type: 'assistant', timestamp: new Date(now - 6 * 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 10, cache_creation: { ephemeral_5m_input_tokens: 10 } } } })
+  ]);
 
-  let out = runStatusline(inputFor(dir, { session_id: session }), { CLAUDE_CONFIG_DIR: claude }).text;
-  assert(out.includes('cache ↓1.0k +10 5m:0m'), out);
+  let out = runStatusline(inputFor(dir, {
+    session_id: session,
+    context_window: {
+      current_usage: {
+        cache_read_input_tokens: 1000,
+        cache_creation_input_tokens: 10,
+        input_tokens: 0
+      }
+    }
+  }), { CLAUDE_CONFIG_DIR: claude }).text;
+  assert(out.includes('cache 99% ↓1k +10 5m:0m'), out);
 
-  fs.writeFileSync(transcript, [
-    JSON.stringify({ type: 'assistant', timestamp: 'not-a-date', message: { usage: { cache_read_input_tokens: 2000, cache_creation_input_tokens: 20, cache_creation: { ephemeral_1h_input_tokens: 20 } } } }),
-    ''
-  ].join('\n'));
+  writeTranscript(claude, dir, session, [
+    JSON.stringify({ type: 'assistant', timestamp: new Date(now - 61 * 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 2000, cache_creation_input_tokens: 20, cache_creation: { ephemeral_1h_input_tokens: 20 } } } })
+  ]);
 
-  out = runStatusline(inputFor(dir, { session_id: session }), { CLAUDE_CONFIG_DIR: claude }).text;
-  assert(out.includes('cache ↓2.0k +20 1h:0m'), out);
+  out = runStatusline(inputFor(dir, {
+    session_id: session,
+    context_window: {
+      current_usage: {
+        cache_read_input_tokens: 2000,
+        cache_creation_input_tokens: 20,
+        input_tokens: 0
+      }
+    }
+  }), { CLAUDE_CONFIG_DIR: claude }).text;
+  assert(out.includes('cache 99% ↓2k +20 1h:0m'), out);
+});
+
+check('cache miss renders bold red zero-percent hit ratio', () => {
+  const dir = makeTempDir();
+  const { raw, text } = runStatusline(inputFor(dir, {
+    context_window: {
+      current_usage: {
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 75000,
+        input_tokens: 5000
+      }
+    }
+  }));
+  assert(raw.includes('\x1b[1;31m0%\x1b[0m'), raw);
+  assert(text.includes('cache 0% ↑75k'), text);
+});
+
+check('cache reset renders after compact when current_usage is null', () => {
+  const dir = makeTempDir();
+  const claude = makeTempDir();
+  const session = 'compact-session';
+  writeTranscript(claude, dir, session, [
+    JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 0 } } })
+  ]);
+
+  const { text } = runStatusline(inputFor(dir, {
+    session_id: session,
+    context_window: { current_usage: null }
+  }), { CLAUDE_CONFIG_DIR: claude });
+  assert(text.includes('cache:reset'), text);
+});
+
+check('transcript slug encoding replaces dots in directory paths', () => {
+  const parent = makeTempDir();
+  const dir = path.join(parent, 'dotted.proj');
+  fs.mkdirSync(dir);
+  const claude = makeTempDir();
+  const session = 'dotted-session';
+  writeTranscript(claude, dir, session, [
+    JSON.stringify({ type: 'assistant', timestamp: new Date(Date.now() - 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 10, cache_creation: { ephemeral_1h_input_tokens: 10 } } } })
+  ]);
+
+  const { text } = runStatusline(inputFor(dir, {
+    session_id: session,
+    context_window: {
+      current_usage: {
+        cache_read_input_tokens: 1000,
+        cache_creation_input_tokens: 10,
+        input_tokens: 0
+      }
+    }
+  }), { CLAUDE_CONFIG_DIR: claude });
+  assert(text.includes('cache 99% ↓1k +10 1h:'), text);
 });
 
 if (failures.length > 0) {
