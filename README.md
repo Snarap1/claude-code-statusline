@@ -1,6 +1,7 @@
 # Claude Code Statusline
 
-<img width="1901" height="131" alt="image" src="https://github.com/user-attachments/assets/b5c8d2ee-c959-4ee3-8acf-37d283ae4182" />
+<img width="1899" height="134" alt="image" src="https://github.com/user-attachments/assets/0f10afac-e1be-44f5-a953-d37132903765" />
+
 
 A feature-rich, single-file Node.js statusline for [Claude Code](https://claude.ai/code).
 One line at the bottom of your terminal that tells you everything you actually need:
