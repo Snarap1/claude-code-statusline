@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Claude Code Statusline
-// Shows: model | task | directory | git sync | context usage
+// Shows: model | directory | git sync | context usage
 
 const fs = require('fs');
 const path = require('path');
@@ -91,24 +91,6 @@ process.stdin.on('end', () => {
       }
 
       ctx = ` ${color}${prefix}${bar}${abs}\x1b[0m`;
-    }
-
-    // --- Current task ---
-    let task = '';
-    const todosDir = path.join(claudeDir, 'todos');
-    if (session && fs.existsSync(todosDir)) {
-      try {
-        const files = fs.readdirSync(todosDir)
-          .filter(f => f.startsWith(session) && f.includes('-agent-') && f.endsWith('.json'))
-          .map(f => ({ name: f, mtime: fs.statSync(path.join(todosDir, f)).mtime }))
-          .sort((a, b) => b.mtime - a.mtime);
-
-        if (files.length > 0) {
-          const todos = JSON.parse(fs.readFileSync(path.join(todosDir, files[0].name), 'utf8'));
-          const inProgress = todos.find(t => t.status === 'in_progress');
-          if (inProgress) task = inProgress.activeForm || '';
-        }
-      } catch (e) {}
     }
 
     // --- Git status (live, local, no network) ---
@@ -368,7 +350,6 @@ process.stdin.on('end', () => {
       return s;
     };
     const segments = [`\x1b[2m${model}\x1b[0m`];
-    if (task) segments.push(`\x1b[1m${task}\x1b[0m`);
     const dirIndex = segments.length;
     segments.push(buildDirSegment(dirRaw));
     if (gitInfo) segments.push(gitInfo.trim());
