@@ -151,5 +151,5 @@ MIT — see [LICENSE](./LICENSE).
 
 ## Credits
 
-Built by [Ilya Pluzhnikov](https://github.com/RaiconY).
+Built by [Ilya Pluzhnikov](https://github.com/ilia-pluzhnikov).
 PRs and forks welcome.
