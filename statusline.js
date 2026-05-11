@@ -44,11 +44,19 @@ process.stdin.on('end', () => {
     };
 
     // --- Context window ---
-    const AUTO_COMPACT_BUFFER_PCT = 16.5;
     let ctx = '';
     if (Number.isFinite(remaining)) {
-      const usableRemaining = Math.max(0, ((remaining - AUTO_COMPACT_BUFFER_PCT) / (100 - AUTO_COMPACT_BUFFER_PCT)) * 100);
-      const used = Math.max(0, Math.min(100, Math.round(100 - usableRemaining)));
+      // Absolute token counts (e.g. "480k/1M"). Numerator is total_input_tokens
+      // (input + cache_creation + cache_read); denominator is context_window_size.
+      // When both are present we drive the bar from them directly \u2014 more honest
+      // than remapping `remaining_percentage` through a hardcoded compact buffer
+      // that doesn't scale across context window sizes.
+      const totalInput = Number(data.context_window?.total_input_tokens) || 0;
+      const ctxSize = Number(data.context_window?.context_window_size) || 0;
+      const haveAbs = totalInput > 0 && ctxSize > 0;
+      const used = haveAbs
+        ? Math.max(0, Math.min(100, Math.round((totalInput / ctxSize) * 100)))
+        : Math.max(0, Math.min(100, Math.round(100 - remaining)));
 
       // Bridge file for context-monitor PostToolUse hook
       if (session) {
@@ -70,12 +78,7 @@ process.stdin.on('end', () => {
         bar += cell === 2 ? '\u2588' : cell === 1 ? '\u258c' : '\u2591';
       }
 
-      // Absolute token counts (e.g. "480k/1M") replace the % readout.
-      // Numerator is total_input_tokens (input + cache_creation + cache_read);
-      // denominator is context_window_size. Hidden when either is missing.
-      const totalInput = Number(data.context_window?.total_input_tokens) || 0;
-      const ctxSize = Number(data.context_window?.context_window_size) || 0;
-      const abs = (totalInput > 0 && ctxSize > 0) ? ` ${fmt(totalInput)}/${fmt(ctxSize)}` : '';
+      const abs = haveAbs ? ` ${fmt(totalInput)}/${fmt(ctxSize)}` : '';
 
       let color, prefix = '';
       if (used < 50) color = '\x1b[38;2;255;125;218m';
@@ -83,10 +86,10 @@ process.stdin.on('end', () => {
       else if (used < 80) color = '\x1b[38;2;255;140;0m';
       else { color = '\x1b[31m'; prefix = '\uD83D\uDC80 '; }
 
-      // Bump pink \u2192 yellow once a 1M-context session crosses 250k tokens used.
-      // The bar scales by the buffer-adjusted usable window, so 250k/1M lands
-      // around 30% on the display and would not otherwise warn.
-      if (color === '\x1b[38;2;255;125;218m' && ctxSize === 1000000 && totalInput > 250000) {
+      // Absolute token cap: 250k is the pricing/quality cliff regardless of how
+      // wide the context window is. Bump pink \u2192 yellow once we cross it, so a
+      // 1M session at 250k/1M (25% used) doesn't render as "still cozy pink".
+      if (haveAbs && totalInput >= 250000 && color === '\x1b[38;2;255;125;218m') {
         color = '\x1b[33m';
       }
 

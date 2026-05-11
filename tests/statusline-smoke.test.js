@@ -55,8 +55,7 @@ function inputFor(dir, overrides = {}) {
 }
 
 function remainingForDisplayedUsed(used) {
-  const buffer = 16.5;
-  return buffer + ((100 - used) * (100 - buffer)) / 100;
+  return 100 - used;
 }
 
 function contextSegment(text) {
@@ -144,7 +143,7 @@ check('context bar shows absolute token counts when available', () => {
   const dir = makeTempDir();
   const { text } = runStatusline(inputFor(dir, {
     context_window: {
-      remaining_percentage: remainingForDisplayedUsed(40),
+      remaining_percentage: 60,
       total_input_tokens: 480000,
       context_window_size: 1000000
     }
@@ -152,6 +151,47 @@ check('context bar shows absolute token counts when available', () => {
   const segment = contextSegment(text);
   assert(segment, text);
   assert(segment.includes('480k/1M'), segment);
+});
+
+check('context bar bumps pink → yellow at 250k absolute tokens', () => {
+  const dir = makeTempDir();
+  // 250k/1M = 25% used → would be pink by the percentage scale,
+  // but absolute 250k is an "already too much" cliff regardless of window size.
+  const { raw } = runStatusline(inputFor(dir, {
+    context_window: {
+      remaining_percentage: 75,
+      total_input_tokens: 250000,
+      context_window_size: 1000000
+    }
+  }));
+  assert(raw.includes('\x1b[33m'), `expected yellow at 250k abs, got: ${raw}`);
+  assert(!raw.includes('\x1b[38;2;255;125;218m'), `pink must not appear, got: ${raw}`);
+
+  // Below threshold stays pink.
+  const { raw: rawLow } = runStatusline(inputFor(dir, {
+    context_window: {
+      remaining_percentage: 75,
+      total_input_tokens: 249999,
+      context_window_size: 1000000
+    }
+  }));
+  assert(rawLow.includes('\x1b[38;2;255;125;218m'), `expected pink at 249999, got: ${rawLow}`);
+});
+
+check('context bar prefers absolute tokens over remaining_percentage', () => {
+  const dir = makeTempDir();
+  // 800k/1M = 80% used → red + skull, regardless of what remaining_percentage says
+  const { text } = runStatusline(inputFor(dir, {
+    context_window: {
+      remaining_percentage: 90,  // would render as ~10% used (pink, empty bar)
+      total_input_tokens: 800000,
+      context_window_size: 1000000
+    }
+  }));
+  const segment = contextSegment(text);
+  assert(segment, text);
+  assert(segment.startsWith('💀 '), `expected skull at 80% real used, got: ${segment}`);
+  assert(contextBar(segment) === '████░', `expected 4 full cells, got: ${contextBar(segment)}`);
 });
 
 check('dirname middle ellipsis triggers only when line >100 cols', () => {
