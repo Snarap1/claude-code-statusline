@@ -20,9 +20,10 @@ Each segment is color-coded (dim, bright, cyan, pink, green, yellow, orange, red
 shape of the line itself communicates urgency at a glance. Labels are aggressively
 shortened so the line fits in a 100-column terminal.
 
-## What you see, left to right
+<img width="1280" height="636" alt="image" src="https://github.com/user-attachments/assets/c07f4e46-61cb-473e-99d6-d7b06a3fa3ec" />
 
-<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/e1394ced-fa9d-427b-8cec-3a5f6a00fbc7" />
+
+## What you see, left to right
 
 
 | Segment | Meaning |
