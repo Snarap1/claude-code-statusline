@@ -352,22 +352,29 @@ process.stdin.on('end', () => {
       else if (detachedSha) s += ` \x1b[31m(HEAD@${detachedSha})\x1b[0m`;
       return s;
     };
-    const segments = [`\x1b[2m${model}\x1b[0m`];
-    const dirIndex = segments.length;
-    segments.push(buildDirSegment(dirRaw));
-    if (gitInfo) segments.push(gitInfo.trim());
-    if (ctx) segments.push(ctx.trim());
-    if (cacheSegment) segments.push(cacheSegment);
-    for (const lp of limitParts) segments.push(lp);
+    const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
+    const sep = ' \x1b[2m\u2502\x1b[0m ';
 
-    // Truncate dirname only if the line crosses 100 visible columns.
+    // Row 1: model \u2502 dir+branch \u2502 context
+    let dirSeg = buildDirSegment(dirRaw);
+    const row1Parts = [`\x1b[2m${model}\x1b[0m`, dirSeg, ctx ? ctx.trim() : null].filter(Boolean);
     if (dirRaw !== dirShort) {
-      const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
-      let visible = -3; // " \u2502 " separator is 3 chars; pre-subtract one to undo over-counting.
-      for (const seg of segments) visible += 3 + stripAnsi(seg).length;
-      if (visible > 100) segments[dirIndex] = buildDirSegment(dirShort);
+      let vis = -sep.replace(/\x1b\[[0-9;]*m/g, '').length;
+      for (const s of row1Parts) vis += stripAnsi(sep).length + stripAnsi(s).length;
+      if (vis > 80) {
+        row1Parts[1] = buildDirSegment(dirShort);
+      }
     }
+    const row1 = row1Parts.join(sep);
 
-    process.stdout.write(segments.join(' \u2502 '));
+    // Row 2: cache \u2502 rate limits
+    const row2Parts = [cacheSegment, ...limitParts].filter(Boolean);
+    const row2 = row2Parts.length ? row2Parts.join(sep) : '';
+
+    // Row 3: git info (omitted when clean)
+    const row3 = gitInfo ? gitInfo.trim() : '';
+
+    const lines = [row1, row2, row3].filter(Boolean);
+    process.stdout.write(lines.join('\n'));
   } catch (e) {}
 });
