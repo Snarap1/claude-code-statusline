@@ -6,15 +6,19 @@
 A feature-rich, single-file Node.js statusline for [Claude Code](https://claude.ai/code).
 One line at the bottom of your terminal that tells you everything you actually need:
 which model you're on, the live git state of your repo, how much context you've
-burned, your prompt-cache hit/write state, and your subscription rate limits.
+burned, and your subscription rate limits.
 
 No dependencies. No build step. Works on macOS, Linux, and Windows.
 
 ## Preview
 
 ```
-Op 4.7 (1m) │ claude-…tusline (main) │ 3M 1? ↑2 push ⚠ md drift │ ██░░░ 480k/1M │ cache 87% ↓75k +360 1h:42m │ 5h:35%(2h15m) │ 7d:42%(4d)
+Op 4.7 (1m) │ claude-…tusline (main) 3M 1? ↑2 push ⚠ md drift │ ██░░░ 480k/1M
+effort:high │ 5h:35%(2h15m) │ 7d:42%(4d)
 ```
+
+Row 1 is model, directory + branch + git state, and context. Row 2 holds effort
+and rate limits. Each part disappears when it has nothing to say.
 
 Each segment is color-coded (dim, bright, cyan, pink, green, yellow, orange, red) so the
 shape of the line itself communicates urgency at a glance. Labels are aggressively
@@ -34,7 +38,7 @@ shortened so the line fits in a 100-column terminal.
 | `↑2 push` / `↓1 pull` | Local branch is ahead/behind `origin/<branch>` |
 | `⚠ md drift` | `CLAUDE.md` ↔ `AGENTS.md` ↔ `GEMINI.md` are out of sync |
 | `██░░░ 480k/1M` | Context window usage — 5-cell bar with half-block precision (`█▌░`, ~10% per step in 5 cells). When Claude Code provides absolute context counters, the bar is driven by `total_input_tokens / context_window_size` and the segment appends the raw counts (for example `480k/1M`). When only `remaining_percentage` is available, the bar falls back to `100 - remaining` |
-| `cache 87% ↓75k +360 1h:42m` | Prompt cache state. Read/write/input counters come from stdin `context_window.current_usage`; the session transcript only supplies the TTL bucket (`1h`/`5m`) and last-touch timestamp for the countdown. Hit ratio is `read / (input + write + read)`: `≥90%` bold green, `≥75%` green, `≥50%` yellow, below that orange, and `0%` bold red for a full miss/invalidation. `↓` means tokens read from cache, `+` or `↑` means tokens written. After `/compact`, `cache:reset` appears while stdin `current_usage` is null but the transcript shows earlier cache activity |
+| `effort:high` | Reasoning effort level from stdin `effort.level` (only sent for models that support effort). `low` dim, `medium` cyan, `high` bold cyan, `xhigh` bold magenta, `max` bold red |
 | `5h:35%(2h15m)` | 5-hour rate limit usage + reset countdown (`Xh Ym` / `Mm`) |
 | `7d:42%(4d)` | 7-day rate limit usage + reset countdown. Coarse format: `Nd` while ≥ 2 days remain; `1dXh` for the final day (renders as `24h` at exactly 1 day so the unit doesn't lie); `Xh Ym` / `Mm` below 1 day |
 
@@ -71,7 +75,7 @@ so a 1M-context session at 250k/1M (25% used) shouldn't render as cozy pink.
 
    On Windows use forward slashes inside the JSON string: `"node \"C:/Users/you/.claude/hooks/statusline.js\""`.
 
-   `refreshInterval: 60` re-runs the script every 60 seconds in addition to event-driven updates (new assistant message, `/compact`, permission mode change, vim mode toggle). Without it, the cache TTL countdown freezes in idle — Claude Code only refreshes the statusline on those events, so a value rendered 50 minutes ago will keep showing `60m remaining` until you press Enter. 60 seconds is enough to step through the color thresholds (dim → yellow → red) cleanly while staying cheap (the script only reads the last 16 KB of the session transcript). Requires Claude Code ≥2.1.97.
+   `refreshInterval: 60` re-runs the script every 60 seconds in addition to event-driven updates (new assistant message, `/compact`, permission mode change, vim mode toggle). Without it, the rate-limit reset countdowns freeze in idle — Claude Code only refreshes the statusline on those events. Requires Claude Code ≥2.1.97.
 
 4. **Restart Claude Code.** That's it.
 
@@ -125,16 +129,13 @@ None of them are required for the statusline itself to work.
 
 - **Windows:** the script uses `windowsHide: true` on every git subprocess call, so no
   console flashes appear during git polling.
-- **Path separators:** filesystem paths use `path.join` and `os.homedir()`;
-  Claude transcript lookup intentionally mirrors Claude Code's project-slug
-  convention by replacing drive colons, path separators, and dots with `-`.
+- **Path separators:** filesystem paths use `path.join` and `os.homedir()`.
 
 ## Customization
 
-The script is 370 lines of dependency-free Node.js. Open it and tweak.
+The script is ~250 lines of dependency-free Node.js. Open it and tweak.
 The most common customizations:
 
-- **Hide the cache segment** — delete the `Prompt cache state` block. Useful if you don't run Claude Code in this terminal or don't want token counts visible.
 - **Change the colour thresholds** — search for `< 50` / `< 65` / `< 80` and edit.
 - **Hide the model name** — remove `\`\x1b[2m${model}\x1b[0m\`` from the `segments` array at the bottom.
 - **Use a different separator** — change `' │ '` (the `│` character) on the final line.

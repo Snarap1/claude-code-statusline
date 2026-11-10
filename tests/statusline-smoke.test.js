@@ -66,16 +66,6 @@ function contextBar(segment) {
   return segment.startsWith('💀 ') ? segment.split(' ')[1] : segment.split(' ')[0];
 }
 
-function slugFor(dir) {
-  return dir.replace(/[:\\\/.]/g, '-');
-}
-
-function writeTranscript(claudeDir, dir, session, records) {
-  const projectDir = path.join(claudeDir, 'projects', slugFor(dir));
-  fs.mkdirSync(projectDir, { recursive: true });
-  fs.writeFileSync(path.join(projectDir, `${session}.jsonl`), records.join('\n') + '\n');
-}
-
 const failures = [];
 function check(name, fn) {
   try {
@@ -351,97 +341,34 @@ check('rate limits show 5h and 7d countdowns with coarse 7d', () => {
   assert(/7d:99%(?!\()/.test(minimal), minimal);
 });
 
-check('cache TTL and JSONL parsing', () => {
+check('effort and rate limits share the second row', () => {
   const dir = makeTempDir();
-  const claude = makeTempDir();
-  const session = 'cache-session';
-  const now = Date.now();
+  const { text } = runStatusline(inputFor(dir, {
+    effort: { level: 'high' },
+    rate_limits: { five_hour: { used_percentage: 15 } }
+  }));
+  const lines = text.split('\n');
+  assert(lines.length === 2, text);
+  assert(lines[1].startsWith('effort:high │ 5h:15%'), text);
 
-  writeTranscript(claude, dir, session, [
-    '{bad json',
-    JSON.stringify({ type: 'assistant', timestamp: new Date(now - 6 * 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 10, cache_creation: { ephemeral_5m_input_tokens: 10 } } } })
-  ]);
+  const noEffort = runStatusline(inputFor(dir, {
+    rate_limits: { five_hour: { used_percentage: 15 } }
+  })).text;
+  assert(!/effort/.test(noEffort), noEffort);
+});
 
-  let out = runStatusline(inputFor(dir, {
-    session_id: session,
+check('cache info is not rendered', () => {
+  const dir = makeTempDir();
+  const { text } = runStatusline(inputFor(dir, {
     context_window: {
       current_usage: {
         cache_read_input_tokens: 1000,
         cache_creation_input_tokens: 10,
         input_tokens: 0
-      }
-    }
-  }), { CLAUDE_CONFIG_DIR: claude }).text;
-  assert(out.includes('cache 99% ↓1k +10 5m:0m'), out);
-
-  writeTranscript(claude, dir, session, [
-    JSON.stringify({ type: 'assistant', timestamp: new Date(now - 61 * 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 2000, cache_creation_input_tokens: 20, cache_creation: { ephemeral_1h_input_tokens: 20 } } } })
-  ]);
-
-  out = runStatusline(inputFor(dir, {
-    session_id: session,
-    context_window: {
-      current_usage: {
-        cache_read_input_tokens: 2000,
-        cache_creation_input_tokens: 20,
-        input_tokens: 0
-      }
-    }
-  }), { CLAUDE_CONFIG_DIR: claude }).text;
-  assert(out.includes('cache 99% ↓2k +20 1h:0m'), out);
-});
-
-check('cache miss renders bold red zero-percent hit ratio', () => {
-  const dir = makeTempDir();
-  const { raw, text } = runStatusline(inputFor(dir, {
-    context_window: {
-      current_usage: {
-        cache_read_input_tokens: 0,
-        cache_creation_input_tokens: 75000,
-        input_tokens: 5000
       }
     }
   }));
-  assert(raw.includes('\x1b[1;31m0%\x1b[0m'), raw);
-  assert(text.includes('cache 0% ↑75k'), text);
-});
-
-check('cache reset renders after compact when current_usage is null', () => {
-  const dir = makeTempDir();
-  const claude = makeTempDir();
-  const session = 'compact-session';
-  writeTranscript(claude, dir, session, [
-    JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 0 } } })
-  ]);
-
-  const { text } = runStatusline(inputFor(dir, {
-    session_id: session,
-    context_window: { current_usage: null }
-  }), { CLAUDE_CONFIG_DIR: claude });
-  assert(text.includes('cache:reset'), text);
-});
-
-check('transcript slug encoding replaces dots in directory paths', () => {
-  const parent = makeTempDir();
-  const dir = path.join(parent, 'dotted.proj');
-  fs.mkdirSync(dir);
-  const claude = makeTempDir();
-  const session = 'dotted-session';
-  writeTranscript(claude, dir, session, [
-    JSON.stringify({ type: 'assistant', timestamp: new Date(Date.now() - 60 * 1000).toISOString(), message: { usage: { cache_read_input_tokens: 1000, cache_creation_input_tokens: 10, cache_creation: { ephemeral_1h_input_tokens: 10 } } } })
-  ]);
-
-  const { text } = runStatusline(inputFor(dir, {
-    session_id: session,
-    context_window: {
-      current_usage: {
-        cache_read_input_tokens: 1000,
-        cache_creation_input_tokens: 10,
-        input_tokens: 0
-      }
-    }
-  }), { CLAUDE_CONFIG_DIR: claude });
-  assert(text.includes('cache 99% ↓1k +10 1h:'), text);
+  assert(!/cache/.test(text), text);
 });
 
 if (failures.length > 0) {

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Claude Code Statusline
-// Shows: model | directory | git sync | context usage
+// Row 1: model | directory + branch + git state | context usage
+// Row 2: effort | rate limits
 
 const fs = require('fs');
 const path = require('path');
@@ -33,8 +34,6 @@ process.stdin.on('end', () => {
     const session = data.session_id || '';
     const rawRemaining = data.context_window?.remaining_percentage;
     const remaining = (rawRemaining == null || rawRemaining === '') ? NaN : Number(rawRemaining);
-    const homeDir = os.homedir();
-    const claudeDir = process.env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude');
 
     const fmt = (n) => {
       if (n < 1000) return String(n);
@@ -166,132 +165,6 @@ process.stdin.on('end', () => {
       }
     } catch (e) {}
 
-    // --- Prompt cache state ---
-    // Counters come from stdin (current_usage of the latest API call).
-    // TTL bucket and last-touch timestamp come from the transcript — stdin
-    // exposes neither ephemeral_1h vs ephemeral_5m nor a per-message timestamp.
-    let cacheSegment = '';
-    try {
-      const usage = data.context_window?.current_usage;
-      const usageNull = usage === null || usage === undefined;
-      const read = (usage && Number(usage.cache_read_input_tokens)) || 0;
-      const write = (usage && Number(usage.cache_creation_input_tokens)) || 0;
-      const freshInput = (usage && Number(usage.input_tokens)) || 0;
-
-      let lastTouchTs = null;
-      let lastWriteTtl = null;
-      let hadCacheBefore = false;
-
-      // Parse transcript when we need TTL/timestamp OR want to detect a /compact
-      // reset (current_usage is null but earlier messages had cache activity).
-      if (session && (read > 0 || write > 0 || usageNull)) {
-        try {
-          // Claude Code slug encoding: drive colon, separators, AND dots → '-'
-          // (e.g. C:\Users\ilyap\.openclaw → C--Users-ilyap--openclaw).
-          // Without the dot replacement, transcripts inside hidden dirs aren't
-          // found and the cache TTL/timestamp segment silently drops.
-          const slug = dir.replace(/[:\\\/.]/g, '-');
-          const transcriptPath = path.join(claudeDir, 'projects', slug, `${session}.jsonl`);
-          if (fs.existsSync(transcriptPath)) {
-            const stat = fs.statSync(transcriptPath);
-            // Read 1 extra byte before the window so the first \n distinguishes
-            // a partial line from a clean line boundary.
-            const desired = Math.min(stat.size, 16384);
-            const startOffset = Math.max(0, stat.size - desired - 1);
-            const readBytes = stat.size - startOffset;
-            const buf = Buffer.alloc(readBytes);
-            const fd = fs.openSync(transcriptPath, 'r');
-            fs.readSync(fd, buf, 0, readBytes, startOffset);
-            fs.closeSync(fd);
-            let content = buf.toString('utf8');
-            if (startOffset > 0) {
-              const nl = content.indexOf('\n');
-              if (nl >= 0) content = content.slice(nl + 1);
-            }
-            const lines = content.split('\n').filter(Boolean);
-
-            for (let i = lines.length - 1; i >= 0; i--) {
-              try {
-                const rec = JSON.parse(lines[i]);
-                const u = rec && rec.type === 'assistant' && rec.message ? rec.message.usage : null;
-                if (!u || !rec.timestamp) continue;
-                const r = u.cache_read_input_tokens || 0;
-                const w = u.cache_creation_input_tokens || 0;
-                if (r === 0 && w === 0) continue;
-
-                hadCacheBefore = true;
-                if (!lastTouchTs) {
-                  const ts = new Date(rec.timestamp).getTime();
-                  lastTouchTs = Number.isFinite(ts) ? ts : 0;
-                }
-                if (!lastWriteTtl && w > 0 && u.cache_creation) {
-                  if (u.cache_creation.ephemeral_1h_input_tokens > 0) lastWriteTtl = '1h';
-                  else if (u.cache_creation.ephemeral_5m_input_tokens > 0) lastWriteTtl = '5m';
-                }
-                if (lastTouchTs && lastWriteTtl) break;
-              } catch (e) {}
-            }
-          }
-        } catch (e) {}
-      }
-
-      if (read > 0 || write > 0) {
-        const parts = ['\x1b[2mcache\x1b[0m'];
-
-        // Hit ratio: read / (input + cache_creation + cache_read).
-        // Matches the input-only formula used for used_percentage.
-        // ratio === 0 means a full cache miss / invalidation — surface it loudly
-        // instead of hiding the segment, since it's a costly event worth noticing.
-        const denom = read + write + freshInput;
-        if (denom > 0) {
-          const ratio = read > 0 ? Math.round(read / denom * 100) : 0;
-          let ratioColor;
-          if (ratio === 0) ratioColor = '\x1b[1;31m';
-          else if (ratio >= 90) ratioColor = '\x1b[1;32m';
-          else if (ratio >= 75) ratioColor = '\x1b[32m';
-          else if (ratio >= 50) ratioColor = '\x1b[33m';
-          else ratioColor = '\x1b[38;2;255;140;0m';
-          parts.push(`${ratioColor}${ratio}%\x1b[0m`);
-        }
-
-        if (read > 0) {
-          parts.push(`\x1b[1;32m↓${fmt(read)}\x1b[0m`);
-        }
-        if (write > 0) {
-          const sym = read > 0 ? '+' : '↑';
-          parts.push(`\x1b[33m${sym}${fmt(write)}\x1b[0m`);
-        }
-        if (lastWriteTtl && lastTouchTs) {
-          const ttlMs = lastWriteTtl === '5m' ? 300000 : 3600000;
-          const remainingSec = (ttlMs - (Date.now() - lastTouchTs)) / 1000;
-          const bucketColor = lastWriteTtl === '5m' ? '\x1b[33m' : '\x1b[2;36m';
-          let suffix = `${bucketColor}${lastWriteTtl}\x1b[0m`;
-          let timeStr;
-          if (remainingSec <= 0) timeStr = '0m';
-          else if (remainingSec < 60) timeStr = Math.ceil(remainingSec) + 's';
-          else if (remainingSec < 3600) timeStr = Math.ceil(remainingSec / 60) + 'm';
-          else {
-            const h = Math.floor(remainingSec / 3600);
-            const m = Math.floor((remainingSec % 3600) / 60);
-            timeStr = h + 'h' + (m > 0 ? m + 'm' : '');
-          }
-          const pct = remainingSec > 0 ? (remainingSec * 1000) / ttlMs : 0;
-          let countColor;
-          if (pct <= 0) countColor = '\x1b[31m';
-          else if (pct < 0.1) countColor = '\x1b[38;2;255;140;0m';
-          else if (pct < 0.25) countColor = '\x1b[33m';
-          else countColor = '\x1b[2m';
-          suffix += `${countColor}:${timeStr}\x1b[0m`;
-          parts.push(suffix);
-        }
-        cacheSegment = parts.join(' ');
-      } else if (usageNull && hadCacheBefore) {
-        // current_usage is null after /compact until the next API call repopulates it.
-        // Show that the live cache view is reset, not just absent.
-        cacheSegment = '\x1b[2mcache:\x1b[0m\x1b[33mreset\x1b[0m';
-      }
-    } catch (e) {}
-
     // --- Rate limits (subscription) ---
     const limitParts = [];
     const rl = data.rate_limits;
@@ -341,6 +214,22 @@ process.stdin.on('end', () => {
       for (const p of parts) limitParts.push(p);
     }
 
+    // --- Reasoning effort ---
+    // stdin carries `effort.level` only for models that support effort.
+    let effortSeg = '';
+    const effortLevel = data.effort?.level;
+    if (typeof effortLevel === 'string' && effortLevel) {
+      const effortColors = {
+        low: '\x1b[2m',
+        medium: '\x1b[36m',
+        high: '\x1b[1;36m',
+        xhigh: '\x1b[1;35m',
+        max: '\x1b[1;31m'
+      };
+      const color = effortColors[effortLevel] || '\x1b[2m';
+      effortSeg = `\x1b[2meffort:\x1b[0m${color}${effortLevel}\x1b[0m`;
+    }
+
     // --- Output ---
     const dirRaw = path.basename(dir);
     const dirShort = dirRaw.length > 15
@@ -350,6 +239,7 @@ process.stdin.on('end', () => {
       let s = `\x1b[2m${name}\x1b[0m`;
       if (branch) s += ` \x1b[36m(${branch})\x1b[0m`;
       else if (detachedSha) s += ` \x1b[31m(HEAD@${detachedSha})\x1b[0m`;
+      if (gitInfo) s += gitInfo;
       return s;
     };
     const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
@@ -367,14 +257,11 @@ process.stdin.on('end', () => {
     }
     const row1 = row1Parts.join(sep);
 
-    // Row 2: cache \u2502 rate limits
-    const row2Parts = [cacheSegment, ...limitParts].filter(Boolean);
-    const row2 = row2Parts.length ? row2Parts.join(sep) : '';
+    // Row 2: effort │ rate limits (each omitted when absent)
+    const row2Parts = [effortSeg, ...limitParts].filter(Boolean);
+    const row2 = row2Parts.join(sep);
 
-    // Row 3: git info (omitted when clean)
-    const row3 = gitInfo ? gitInfo.trim() : '';
-
-    const lines = [row1, row2, row3].filter(Boolean);
+    const lines = [row1, row2].filter(Boolean);
     process.stdout.write(lines.join('\n'));
   } catch (e) {}
 });
